@@ -1,0 +1,14 @@
+[package]
+edition = "2021"
+name = "day_3"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dev-dependencies]
+criterion = "0.5.1"
+owo-colors = "3.5.0"
+
+[[bench]]
+harness = false
+name = "gear_ratios"
