@@ -1,9 +1,9 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 const INPUT: &str = include_str!("input.txt");
 fn main() {
-    let points = points(INPUT);
-    println!("Points: {points}");
+    println!("Points: {}", points(INPUT));
+    println!("Card Copies: {}", copies(INPUT));
 }
 
 fn points(input: &str) -> u32 {
@@ -33,6 +33,40 @@ fn points(input: &str) -> u32 {
         .sum()
 }
 
+fn copies(input: &str) -> u32 {
+    let mut card_count = 0;
+    let mut earned_copies = VecDeque::new();
+    for  line in input.lines() {
+        let (_tag, numbers) = line.split_once(':').expect("line has a ':'");
+        let (winning_nums, own_nums) = numbers.split_once('|').expect("numbers have '|'");
+
+        // original card + copies you earned
+        let cur_earned_copies = 1 + earned_copies.pop_front().unwrap_or(0);
+        card_count += cur_earned_copies;
+
+        // TODO optimize allocaion away
+        let winning_nums = winning_nums
+            .split_whitespace()
+            .map(str::parse::<u32>)
+            .collect::<Result<HashSet<_>, _>>()
+            .expect("valid winning numbers");
+
+        let win_count = own_nums
+            .split_whitespace()
+            .filter(|own_num| winning_nums.contains(&own_num.parse().expect("valid own number")))
+            .count();
+
+        if earned_copies.len() < win_count {
+            earned_copies.resize(win_count, 0);
+        }
+        for card_copies in earned_copies.range_mut(..win_count) {
+            *card_copies += cur_earned_copies;
+        }
+    }
+
+    card_count
+}
+
 #[cfg(test)]
 pub mod tests {
     const INPUT: &str = "Card 1: 41 48 83 86 17 | 83 86  6 31 17  9 48 53
@@ -46,5 +80,11 @@ pub mod tests {
     fn points() {
         let points = super::points(INPUT);
         assert_eq!(points, 13);
+    }
+
+    #[test]
+    fn copies() {
+        let points = super::copies(INPUT);
+        assert_eq!(points, 30);
     }
 }
