@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use num::Integer;
+
 const INPUT: &str = include_str!("input.txt");
 
 fn main() {
@@ -63,28 +65,28 @@ fn multi_path(input: &str) -> usize {
         })
         .collect::<HashMap<_, _>>();
 
-    let mut cur_nodes = network
+    let mut insts = inst.chars().cycle();
+
+    network
         .keys()
         .filter(|node| node.ends_with('A'))
         .copied()
-        .collect::<Vec<_>>();
-
-    let mut step_count = 0;
-    let mut insts = inst.chars().cycle();
-    while !cur_nodes.iter().all(|node| node.ends_with('Z')) {
-        eprintln!("{cur_nodes:?}");
-        let inst = insts.next().unwrap();
-        for cur_node in &mut cur_nodes {
-            let (left, right) = network[cur_node];
-            *cur_node = match inst {
-                'L' => left,
-                'R' => right,
-                inst => panic!("invalid instruction {inst:?}"),
-            };
-        }
-        step_count += 1;
-    }
-    step_count
+        .map(|mut cur_node| {
+            let mut step_count = 0;
+            while !cur_node.ends_with('Z') {
+                let inst = insts.next().unwrap();
+                let (left, right) = network[cur_node];
+                cur_node = match inst {
+                    'L' => left,
+                    'R' => right,
+                    inst => panic!("invalid instruction {inst:?}"),
+                };
+                step_count += 1;
+            }
+            step_count
+        })
+        .reduce(|acc, cur| acc.lcm(&cur))
+        .unwrap()
 }
 
 #[cfg(test)]
