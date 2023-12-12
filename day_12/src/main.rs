@@ -8,8 +8,13 @@ use owo_colors::OwoColorize;
 const INPUT: &str = include_str!("input.txt");
 
 fn main() {
-    println!("Arrangement count: {}", operational_arrangements(INPUT));
+    let arrangement_count = INPUT.lines().map(arrangements).sum::<usize>();
+    println!("Arrangement count: {arrangement_count}");
     // 7857
+    
+    let arrangement_count = INPUT.lines().map(arrangements_x5).sum::<usize>();
+    println!("Arrangement count x5: {arrangement_count}");
+    // 
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -29,11 +34,7 @@ impl Display for State {
     }
 }
 
-fn operational_arrangements(records: &str) -> usize {
-    records.lines().map(op_arrangement_line).sum()
-}
-
-fn op_arrangement_line(line: &str) -> usize {
+fn arrangements(line: &str) -> usize {
     // eprintln!("{}", line.blue());
     let (record, groups) = line.split_once(' ').unwrap();
     let record = record
@@ -51,7 +52,42 @@ fn op_arrangement_line(line: &str) -> usize {
         .map(Result::unwrap)
         .collect::<Vec<_>>();
 
-    let result = try_match(record.iter().copied(), groups.into_iter(), &[], &record);
+    let result = try_match(record.into_iter(), groups.into_iter(), &[]);
+    // eprintln!("{}", result.red());
+    result
+}
+
+fn arrangements_x5(line: &str) -> usize {
+    // eprintln!("{}", line.blue());
+    let (record, groups) = line.split_once(' ').unwrap();
+    let record = record
+        .chars()
+        .map(|c| match c {
+            '.' => State::Operational,
+            '#' => State::Damaged,
+            '?' => State::Unknown,
+            c => panic!("unknown state: {c:?}"),
+        })
+        .collect::<Vec<_>>();
+    let groups = groups
+        .split(',')
+        .map(str::parse::<usize>)
+        .map(Result::unwrap)
+        .collect::<Vec<_>>();
+
+    let record = record
+        .iter()
+        .copied()
+        .chain(once(State::Unknown))
+        .chain(record.iter().copied())
+        .chain(once(State::Unknown))
+        .chain(record.iter().copied())
+        .chain(once(State::Unknown))
+        .chain(record.iter().copied())
+        .chain(once(State::Unknown))
+        .chain(record.iter().copied());
+
+    let result = try_match(record, (0..5).flat_map(|_| groups.iter().copied()), &[]);
     // eprintln!("{}", result.red());
     result
 }
@@ -66,7 +102,6 @@ fn try_match(
     mut record: impl Iterator<Item = State> + Clone,
     mut groups: impl Iterator<Item = usize> + Clone,
     dis_buf: &[State],
-    og: &[State],
 ) -> usize {
     let Some(group) = groups.next() else {
         // let mut record_len = 0;
@@ -139,7 +174,7 @@ fn try_match(
                 Some(State::Operational | State::Unknown) => {
                     // dis_buf.push(State::Operational);
 
-                    let arrangements = try_match(record, groups.clone(), &dis_buf, og);
+                    let arrangements = try_match(record, groups.clone(), &dis_buf);
                     // TODO short-circuit
                     // if arrangements == 0 {
                     //     // fmt(dis_buf);
@@ -176,23 +211,32 @@ fn compare(expected: impl IntoIterator<Item = State>, got: impl IntoIterator<Ite
 #[cfg(test)]
 mod tests {
 
+    const RECORDS: &[&str] = &[
+        "???.### 1,1,3",
+        ".??..??...?##. 1,1,3",
+        "?#?#?#?#?#?#?#? 1,3,1,6",
+        "????.#...#... 4,1,1",
+        "????.######..#####. 1,6,5",
+        "?###???????? 3,2,1",
+    ];
+
     #[test]
     fn operational_arrangements() {
-        let lines = [
-            "???.### 1,1,3",
-            ".??..??...?##. 1,1,3",
-            "?#?#?#?#?#?#?#? 1,3,1,6",
-            "????.#...#... 4,1,1",
-            "????.######..#####. 1,6,5",
-            "?###???????? 3,2,1",
-        ];
         let expected = [1, 4, 1, 1, 4, 10];
 
-        for (line, expected) in lines.iter().zip(expected.iter()) {
-            let got = super::op_arrangement_line(line);
+        for (line, expected) in RECORDS.iter().zip(expected.iter()) {
+            let got = super::arrangements(line);
             assert_eq!(got, *expected, "{line}: expected {expected}, got {got}");
         }
+    }
 
-        assert_eq!(super::operational_arrangements(&lines.join("\n")), 21);
+    #[test]
+    fn operational_arrangements_x5() {
+        let expected = [1, 16384, 1, 16, 2500, 506250];
+
+        for (line, expected) in RECORDS.iter().zip(expected.iter()) {
+            let got = super::arrangements_x5(line);
+            assert_eq!(got, *expected, "{line}: expected {expected}, got {got}");
+        }
     }
 }
