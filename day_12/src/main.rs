@@ -11,10 +11,10 @@ fn main() {
     let arrangement_count = INPUT.lines().map(arrangements).sum::<usize>();
     println!("Arrangement count: {arrangement_count}");
     // 7857
-    
+
     let arrangement_count = INPUT.lines().map(arrangements_x5).sum::<usize>();
     println!("Arrangement count x5: {arrangement_count}");
-    // 
+    //
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -58,7 +58,7 @@ fn arrangements(line: &str) -> usize {
 }
 
 fn arrangements_x5(line: &str) -> usize {
-    // eprintln!("{}", line.blue());
+    eprintln!("{}", line.blue());
     let (record, groups) = line.split_once(' ').unwrap();
     let record = record
         .chars()
@@ -75,6 +75,9 @@ fn arrangements_x5(line: &str) -> usize {
         .map(Result::unwrap)
         .collect::<Vec<_>>();
 
+    let result = try_match(record.into_iter(), groups.into_iter(), &[]);
+    return result.pow(5);
+
     let record = record
         .iter()
         .copied()
@@ -88,7 +91,7 @@ fn arrangements_x5(line: &str) -> usize {
         .chain(record.iter().copied());
 
     let result = try_match(record, (0..5).flat_map(|_| groups.iter().copied()), &[]);
-    // eprintln!("{}", result.red());
+    eprintln!("{}", result.red());
     result
 }
 
@@ -104,18 +107,18 @@ fn try_match(
     dis_buf: &[State],
 ) -> usize {
     let Some(group) = groups.next() else {
-        // let mut record_len = 0;
+        let mut record_len = 0;
         if record.all(|s| {
-            // record_len += 1;
+            record_len += 1;
             s != State::Damaged
         }) {
-            // let dis_buf = dis_buf
-            //     .iter()
-            //     .copied()
-            //     .chain(iter::repeat(State::Operational).take(record_len));
-            // fmt(dis_buf);
+            let dis_buf = dis_buf
+                .iter()
+                .copied()
+                .chain(iter::repeat(State::Operational).take(record_len));
+            fmt(dis_buf);
             // compare(og.iter().copied(), dis_buf);
-            // eprintln!(" ✅ end of groups");
+            eprintln!(" ✅ end of groups");
             return 1;
         } else {
             return 0;
@@ -125,65 +128,55 @@ fn try_match(
     let mut sum = 0;
     let mut i = 0;
     'record_loop: loop {
-        // let mut dis_buf = dis_buf
-        //     .iter()
-        //     .copied()
-        //     .chain(iter::repeat(State::Operational).take(i))
-        //     .collect::<Vec<_>>();
+        let mut dis_buf = dis_buf
+            .iter()
+            .copied()
+            .chain(iter::repeat(State::Operational).take(i))
+            .collect::<Vec<_>>();
 
         'try_arr: {
             let mut record = record.clone();
             for _ in 0..group {
                 match record.next() {
                     Some(State::Operational) => {
-                        // fmt(dis_buf);
-                        // eprintln!(" X invalid group");
+                        fmt(dis_buf.iter().copied());
+                        eprintln!(" X invalid group");
                         break 'try_arr;
                     }
                     Some(State::Damaged | State::Unknown) => (),
                     None => {
-                        // fmt(dis_buf.iter().copied());
-                        // eprintln!(" X group end of record");
+                        fmt(dis_buf.iter().copied());
+                        eprintln!(" X group end of record");
                         break 'record_loop;
                     }
                 }
             }
 
-            // eprint!("{}", "#".repeat(group));
-            // dis_buf.extend(iter::repeat(State::Damaged).take(group));
+            dis_buf.extend(iter::repeat(State::Damaged).take(group));
 
-            // separator
             match record.next() {
                 None => {
                     if groups.next().is_some() {
-                        // fmt(dis_buf);
-                        // eprintln!(" X sep end of record, remaining groups");
+                        fmt(dis_buf);
+                        eprintln!(" X sep end of record, remaining groups");
                         break 'record_loop;
                     } else {
-                        // fmt(dis_buf.iter().copied());
+                        fmt(dis_buf.iter().copied());
                         // compare(record.iter().copied(), dis_buf);
-                        // eprintln!(" ✅ sep end of record, no groups");
+                        eprintln!(" ✅ sep end of record, no groups");
                         sum += 1;
                     }
                 }
 
                 Some(State::Damaged) => {
-                    // fmt(dis_buf);
-                    // eprintln!(" X missing sep");
+                    fmt(dis_buf.iter().copied());
+                    eprintln!(" X missing sep");
                 }
                 Some(State::Operational | State::Unknown) => {
-                    // dis_buf.push(State::Operational);
+                    dis_buf.push(State::Operational);
 
                     let arrangements = try_match(record, groups.clone(), &dis_buf);
-                    // TODO short-circuit
-                    // if arrangements == 0 {
-                    //     // fmt(dis_buf);
-                    //     // eprintln!(" X no more matches {depth}");
-                    //     None
-                    // } else
-                    {
-                        sum += arrangements
-                    }
+                    sum += arrangements
                 }
             }
         }
@@ -191,6 +184,7 @@ fn try_match(
         match record.next() {
             Some(State::Damaged) | None => break,
             Some(State::Operational | State::Unknown) => {
+                dis_buf.push(State::Operational);
                 i += 1;
             }
         }
@@ -238,5 +232,10 @@ mod tests {
             let got = super::arrangements_x5(line);
             assert_eq!(got, *expected, "{line}: expected {expected}, got {got}");
         }
+    }
+
+    #[test]
+    fn too_slow() {
+        super::arrangements_x5("?????#???????????#?# 1,4,1,2,1,1");
     }
 }
