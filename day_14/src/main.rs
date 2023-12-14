@@ -1,12 +1,11 @@
-use std::mem;
-
 const INPUT: &str = include_str!("input.txt");
 
 fn main() {
     println!("Load: {}", load(INPUT));
+    println!("Load 1m cycles: {}", load_cycles(INPUT));
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Pixel {
     Round,
     Cube,
@@ -63,31 +62,33 @@ fn load_cycles(input: &str) -> usize {
     let mut cycles = vec![og_input];
 
     for i in 0..CYCLE_COUNT {
-        eprintln!("cycle {i}");
+        // eprintln!("cycle {i}");
         let mut input = cycles.last().unwrap().clone();
         cycle(&mut input);
-
-        // eprintln!("After {} cycles:", i + 1);
-        // for row in &next_input {
-        //     for p in row {
-        //         match p {
-        //             Pixel::Round => eprint!("O"),
-        //             Pixel::Cube => eprint!("#"),
-        //             Pixel::Empty => eprint!("."),
-        //         }
-        //     }
-        //     eprintln!()
-        // }
-        // eprintln!();
 
         if let Some(j) = cycles
             .iter()
             .enumerate()
             .find_map(|(i, cycle)| (cycle == &input).then_some(i))
         {
-            let period = i - j;
-            let remainder = CYCLE_COUNT % period;
+            let period = i - (j - 1);
+            let remainder = (CYCLE_COUNT - j) % period;
+            // eprintln!("period = {i} - {j} = {period}; remainder = {remainder}");
             let final_arrangement = &cycles[j + remainder];
+            // eprintln!("final = {}", j + remainder);
+
+            // for row in final_arrangement {
+            //     for p in row {
+            //         match p {
+            //             Pixel::Round => eprint!("O"),
+            //             Pixel::Cube => eprint!("#"),
+            //             Pixel::Empty => eprint!("."),
+            //         }
+            //     }
+            //     eprintln!()
+            // }
+            // eprintln!();
+
             let input_len = final_arrangement.len();
             return final_arrangement
                 .iter()
@@ -102,7 +103,7 @@ fn load_cycles(input: &str) -> usize {
             cycles.push(input);
         }
     }
-
+    assert!(cycles.last().unwrap() == &cycles[114]);
     panic!("no periodicity")
 }
 
