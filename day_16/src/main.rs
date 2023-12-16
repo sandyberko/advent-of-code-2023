@@ -2,6 +2,7 @@ const INPUT: &str = include_str!("input.txt");
 
 fn main() {
     println!("Energized: {}", energized(INPUT));
+    println!("Max energized: {}", max_energized(INPUT));
 }
 
 enum Pixel {
@@ -33,24 +34,7 @@ enum Dir {
 }
 
 fn energized(grid: &str) -> usize {
-    let mut grid = grid
-        .lines()
-        .map(|line| {
-            line.chars()
-                .map(|c| {
-                    let p = match c {
-                        '.' => Pixel::Empty,
-                        '/' => Pixel::MirrorRightward,
-                        '\\' => Pixel::MirrorLeftward,
-                        '-' => Pixel::SplitterHorizontal,
-                        '|' => Pixel::SplitterVertical,
-                        c => panic!("invalid pixel {c:?}"),
-                    };
-                    (p, [false; 4])
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
+    let mut grid = parse_grid(grid);
 
     trace_ray(&mut grid, 0, 0, Dir::Right);
 
@@ -82,15 +66,66 @@ fn energized(grid: &str) -> usize {
     //     eprintln!()
     // }
 
-    grid.into_iter()
+    energized_count(&grid)
+}
+
+fn max_energized(grid: &str) -> usize {
+    let mut grid = parse_grid(grid);
+
+    let y_len = grid.len();
+    let x_len = grid[0].len();
+
+    (0..x_len)
+        .flat_map(|x| [(0, x, Dir::Down), (y_len - 1, x, Dir::Up)])
+        .chain((1..y_len - 1).flat_map(|y| [(y, 0, Dir::Right), (y, x_len, Dir::Left)]))
+        .map(|(y, x, dir)| {
+            trace_ray(&mut grid, y, x, dir);
+            let energized = energized_count(&grid);
+
+            // clear
+            for line in &mut grid {
+                for (_, is_energized) in line {
+                    *is_energized = [false; 4]
+                }
+            }
+            energized
+        })
+        .max()
+        .unwrap()
+}
+
+type Grid = Vec<Vec<(Pixel, [bool; 4])>>;
+
+fn energized_count(grid: &Grid) -> usize {
+    grid.iter()
         .flat_map(|line| {
-            line.into_iter()
+            line.iter()
                 .filter(|(_, is_energized)| is_energized.contains(&true))
         })
         .count()
 }
 
-fn trace_ray(grid: &mut [Vec<(Pixel, [bool; 4])>], mut y: usize, mut x: usize, dir: Dir) {
+fn parse_grid(grid: &str) -> Grid {
+    grid.lines()
+        .map(|line| {
+            line.chars()
+                .map(|c| {
+                    let p = match c {
+                        '.' => Pixel::Empty,
+                        '/' => Pixel::MirrorRightward,
+                        '\\' => Pixel::MirrorLeftward,
+                        '-' => Pixel::SplitterHorizontal,
+                        '|' => Pixel::SplitterVertical,
+                        c => panic!("invalid pixel {c:?}"),
+                    };
+                    (p, [false; 4])
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
+}
+
+fn trace_ray(grid: &mut Grid, mut y: usize, mut x: usize, dir: Dir) {
     while let Some((p, is_energized)) = grid
         .get_mut(y)
         .and_then(|line| line.get_mut(x))
@@ -177,5 +212,11 @@ mod tests {
     fn energized() {
         let energized = super::energized(GRID);
         assert_eq!(energized, 46);
+    }
+
+    #[test]
+    fn max_energized() {
+        let energized = super::max_energized(GRID);
+        assert_eq!(energized, 51);
     }
 }
