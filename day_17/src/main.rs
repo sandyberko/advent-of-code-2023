@@ -3,7 +3,9 @@ use std::{cmp::Ordering, collections::BinaryHeap};
 const INPUT: &str = include_str!("input.txt");
 
 fn main() {
-    println!("Shortest Path: {}", shortest_path(INPUT));
+    println!("Shortest Path: {}", shortest_path::<3>(INPUT, 1));
+    // 1260
+    println!("Shortest Path - Ultra: {}", shortest_path::<10>(INPUT, 4));
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -31,10 +33,10 @@ impl std::fmt::Debug for Dir {
     }
 }
 
-struct Node {
+struct Node<const MAX_STR: usize> {
     heat_loss: u8,
-    cost: [[usize; 3]; 4],
-    visited: [[bool; 3]; 4],
+    cost: [[usize; MAX_STR]; 4],
+    visited: [[bool; MAX_STR]; 4],
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -48,7 +50,7 @@ struct State {
     cost: usize,
     position: Point,
     span: Option<Span>,
-    // past: Vec<(Point, Span)>,
+    past: Vec<(Point, Span, usize)>,
 }
 
 // The priority queue depends on `Ord`.
@@ -74,15 +76,15 @@ impl PartialOrd for State {
     }
 }
 
-fn shortest_path(map: &str) -> usize {
+fn shortest_path<const MAX_STR: usize>(map: &str, stride: u8) -> usize {
     let mut map = map
         .lines()
         .map(|line| {
             line.chars()
                 .map(|c| Node {
                     heat_loss: c.to_digit(10).unwrap() as _,
-                    cost: [[usize::MAX; 3]; 4],
-                    visited: [[false; 3]; 4],
+                    cost: [[usize::MAX; MAX_STR]; 4],
+                    visited: [[false; MAX_STR]; 4],
                 })
                 .collect::<Box<[_]>>()
         })
@@ -90,19 +92,19 @@ fn shortest_path(map: &str) -> usize {
 
     let mut unvisited = BinaryHeap::new();
 
-    map[0][0].cost = [[0; 3]; 4];
+    map[0][0].cost = [[0; MAX_STR]; 4];
     unvisited.push(State {
         cost: 0,
         position: Point { y: 0, x: 0 },
         span: None,
-        // past: Vec::new(),
+        past: Vec::new(),
     });
 
     while let Some(State {
         cost,
         position: Point { y, x },
         span,
-        // past,
+        past,
     }) = unvisited.pop()
     {
         // eprintln!("{}", unvisited.len());
@@ -115,12 +117,17 @@ fn shortest_path(map: &str) -> usize {
             }
         }
 
-        if y == map.len() - 1 && x == map[0].len() - 1 {
+        if y >= map.len() - 1 && x >= map[0].len() - 1 {
+            // eprintln!("✅✅✅✅✅✅");
+            // for (_, span, stride_cost) in &past {
+            //     eprintln!("{}: {stride_cost}", span.span);
+            // }
             // for (y, row) in map.iter().enumerate() {
             //     for (x, node) in row.iter().enumerate() {
             //         if past.iter().filter(|(p, ..)| p == &Point { y, x }).count() > 1 {
             //             eprint!("@");
-            //         } else if let Some((_, dir)) = past.iter().find(|(p, ..)| p == &Point { y, x })
+            //         } else if let Some((_, dir, ..)) =
+            //             past.iter().find(|(p, ..)| p == &Point { y, x })
             //         {
             //             eprint!("{:?}", dir.dir);
             //         } else {
@@ -133,47 +140,81 @@ fn shortest_path(map: &str) -> usize {
             return cost;
         }
 
-        // Important as we may have already found a better way
-        // if cost > map[y][x].cost {
-        //     continue;
-        // }
-        // if span.is_some_and(|span| {
-        //     map[y][x].cost.iter().enumerate().any(|(dir_i, dirs)| {
-        //         dirs.iter().enumerate().any(|(span_i, cost_i)| {
-        //             dir_i == span.dir as usize && span_i as u8 <= span.span && *cost_i < cost
-        //         })
-        //     })
-        // }) {
-        //     eprintln!("BREAK");
-        //     continue;
-        // }
+        for dir in [Dir::Down, Dir::Left, Dir::Right, Dir::Up] {
+            let stride = if span.map_or(true, |span| dir != span.dir) {
+                stride
+            } else {
+                1
+            };
 
-        for (nbor, dir) in [
-            y.checked_sub(1).map(|y| (Point { y, x }, Dir::Up)),
-            x.checked_sub(1).map(|x| (Point { y, x }, Dir::Left)),
-        ]
-        .into_iter()
-        .flatten()
-        .chain([
-            (Point { y: y + 1, x }, Dir::Down),
-            (Point { y, x: x + 1 }, Dir::Right),
-        ]) {
+            let (nbor, stride_cost) = match dir {
+                Dir::Up => {
+                    if let Some(nbor_y) = y.checked_sub(stride as usize) {
+                        (
+                            Point { y: nbor_y, x },
+                            (nbor_y..y)
+                                .filter_map(|nbor_y| {
+                                    Some(map.get(nbor_y)?.get(x)?.heat_loss as usize)
+                                })
+                                .sum::<usize>(),
+                        )
+                    } else {
+                        continue;
+                    }
+                }
+                Dir::Left => {
+                    if let Some(nbor_x) = x.checked_sub(stride as usize) {
+                        (
+                            Point { y, x: nbor_x },
+                            (nbor_x..x)
+                                .filter_map(|nbor_x| {
+                                    Some(map.get(y)?.get(nbor_x)?.heat_loss as usize)
+                                })
+                                .sum::<usize>(),
+                        )
+                    } else {
+                        continue;
+                    }
+                }
+                Dir::Down => (
+                    Point {
+                        y: y + stride as usize,
+                        x,
+                    },
+                    (y + 1..=y + stride as usize)
+                        .filter_map(|y| Some(map.get(y)?.get(x)?.heat_loss as usize))
+                        .sum::<usize>(),
+                ),
+                Dir::Right => (
+                    Point {
+                        y,
+                        x: x + stride as usize,
+                    },
+                    (x + 1..=x + stride as usize)
+                        .filter_map(|x| Some(map.get(y)?.get(x)?.heat_loss as usize))
+                        .sum::<usize>(),
+                ),
+            };
+
             let Some(nbor_node) = map.get_mut(nbor.y).and_then(|row| row.get_mut(nbor.x)) else {
                 continue;
             };
 
             let next_span =
                 if let Some(span) = span.and_then(|span| (span.dir == dir).then_some(span)) {
-                    if span.span >= 2 {
-                        continue;
-                    } else {
+                    if ((span.span + stride) as usize) < MAX_STR {
                         Span {
                             dir,
-                            span: span.span + 1,
+                            span: span.span + stride,
                         }
+                    } else {
+                        continue;
                     }
                 } else {
-                    Span { dir, span: 0 }
+                    Span {
+                        dir,
+                        span: stride - 1,
+                    }
                 };
 
             if nbor_node.visited[next_span.dir as usize][next_span.span as usize] {
@@ -181,10 +222,10 @@ fn shortest_path(map: &str) -> usize {
             }
 
             let next = State {
-                cost: cost + nbor_node.heat_loss as usize,
+                cost: cost + stride_cost,
                 position: nbor,
                 span: Some(next_span),
-                // past: [past.clone(), vec![(nbor, next_span)]].concat(),
+                past: [past.clone(), vec![(nbor, next_span, stride_cost)]].concat(),
             };
 
             if nbor_node.cost.iter().enumerate().any(|(dir_i, dirs)| {
@@ -225,7 +266,27 @@ mod tests {
     fn shortest_path() {
         // FIXME the path tries to go back on itself, thus this fails.
         // although the puzzle input somehow does work
-        let shortest_path = super::shortest_path(MAP);
+        let shortest_path = super::shortest_path::<3>(MAP, 1);
         assert_eq!(shortest_path, 102);
+    }
+
+    #[test]
+    fn shortest_path_ultra() {
+        let shortest_path = super::shortest_path::<10>(MAP, 4);
+        assert_eq!(shortest_path, 94);
+    }
+
+    #[test]
+    fn shortest_path_ultra_2() {
+        // FIXME the path tries to go back on itself, thus this fails.
+        let map = concat! {
+            "111111111111\n",
+            "999999999991\n",
+            "999999999991\n",
+            "999999999991\n",
+            "999999999991\n",
+        };
+        let shortest_path = super::shortest_path::<10>(map, 4);
+        assert_eq!(shortest_path, 71);
     }
 }
