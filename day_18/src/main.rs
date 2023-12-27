@@ -4,6 +4,7 @@ const INPUT: &str = include_str!("input.txt");
 
 fn main() {
     println!("lavaduct lagoon area: {}", lavaduct_lagoon_area(INPUT));
+    println!("Part 2: {}", lavaduct_lagoon_area_2(INPUT));
 }
 
 struct Point {
@@ -61,6 +62,45 @@ fn lavaduct_lagoon_area(input: &str) -> usize {
     (area / 2).unsigned_abs() + (circumference / 2) + 1
 }
 
+fn lavaduct_lagoon_area_2(input: &str) -> usize {
+    let mut circumference = 0;
+    let mut polygon: Vec<Point> = Vec::new();
+    {
+        let mut x: isize = 0;
+        let mut y: isize = 0;
+
+        for line in input.lines() {
+            // second from last
+            let dir = line.chars().rev().nth(1).unwrap();
+            let stride = &line[line.len() - 2 - 5..line.len() - 2];
+            let stride = usize::from_str_radix(stride, 16).unwrap();
+            circumference += stride;
+
+            match dir {
+                //R
+                '0' => x += stride as isize,
+                //D
+                '1' => y += stride as isize,
+                //L
+                '2' => x -= stride as isize,
+                //U
+                '3' => y -= stride as isize,
+                _ => panic!("{dir:?}"),
+            }
+
+            polygon.push(Point::new(y, x));
+        }
+    }
+
+    let mut area = 0isize;
+    let mut j = polygon.len() - 1;
+    for i in 0..polygon.len() {
+        area += (polygon[j].x + polygon[i].x) * (polygon[j].y - polygon[i].y);
+        j = i;
+    }
+    (area / 2).unsigned_abs() + (circumference / 2) + 1
+}
+
 #[cfg(test)]
 mod tests {
     const INPUT: &str = concat! {
@@ -84,5 +124,11 @@ mod tests {
     fn lavaduct_lagoon() {
         let result = super::lavaduct_lagoon_area(INPUT);
         assert_eq!(result, 62);
+    }
+
+    #[test]
+    fn lavaduct_lagoon_2() {
+        let result = super::lavaduct_lagoon_area_2(INPUT);
+        assert_eq!(result, 952_408_144_115);
     }
 }
