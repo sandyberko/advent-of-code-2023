@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{array, collections::HashMap, ops::Range};
 
 const INPUT: &str = include_str!("input.txt");
 
@@ -6,6 +6,7 @@ fn main() {
     println!("Accepted: {}", workflows(INPUT));
 }
 
+#[derive(Clone, Copy)]
 enum Category {
     ExtremelyCoolLooking,
     Musical,
@@ -32,44 +33,7 @@ struct Rule<'s> {
 fn workflows(input: &str) -> usize {
     let (workflows, parts) = input.split_once("\n\n").unwrap();
 
-    let workflows = workflows
-        .lines()
-        .map(|line| {
-            let (tag, rules) = line.split_once('{').unwrap();
-            let rules = rules
-                .trim_end_matches('}')
-                .split(',')
-                .map(|rule| {
-                    if let Some((cond, dest)) = rule.split_once(':') {
-                        let mut cond = cond.chars();
-                        let cat = match cond.next().unwrap() {
-                            'x' => Category::ExtremelyCoolLooking,
-                            'm' => Category::Musical,
-                            'a' => Category::Aerodynamic,
-                            's' => Category::Shiny,
-                            cat => panic!("invalid category {cat}"),
-                        };
-                        let op = match cond.next().unwrap() {
-                            '<' => Op::Lt,
-                            '>' => Op::Gt,
-                            op => panic!("invalid op {op}"),
-                        };
-                        let arg = cond.as_str().parse().unwrap();
-                        Rule {
-                            cond: Some(Cond { cat, op, arg }),
-                            dest,
-                        }
-                    } else {
-                        Rule {
-                            cond: None,
-                            dest: rule,
-                        }
-                    }
-                })
-                .collect::<Vec<_>>();
-            (tag, rules)
-        })
-        .collect::<HashMap<_, _>>();
+    let workflows = parse_workflows(workflows);
 
     parts
         .lines()
@@ -127,6 +91,95 @@ fn workflows(input: &str) -> usize {
         .sum()
 }
 
+fn parse_workflows(workflows: &str) -> HashMap<&str, Vec<Rule<'_>>> {
+    workflows
+        .lines()
+        .map(|line| {
+            let (tag, rules) = line.split_once('{').unwrap();
+            let rules = rules
+                .trim_end_matches('}')
+                .split(',')
+                .map(|rule| {
+                    if let Some((cond, dest)) = rule.split_once(':') {
+                        let mut cond = cond.chars();
+                        let cat = match cond.next().unwrap() {
+                            'x' => Category::ExtremelyCoolLooking,
+                            'm' => Category::Musical,
+                            'a' => Category::Aerodynamic,
+                            's' => Category::Shiny,
+                            cat => panic!("invalid category {cat}"),
+                        };
+                        let op = match cond.next().unwrap() {
+                            '<' => Op::Lt,
+                            '>' => Op::Gt,
+                            op => panic!("invalid op {op}"),
+                        };
+                        let arg = cond.as_str().parse().unwrap();
+                        Rule {
+                            cond: Some(Cond { cat, op, arg }),
+                            dest,
+                        }
+                    } else {
+                        Rule {
+                            cond: None,
+                            dest: rule,
+                        }
+                    }
+                })
+                .collect::<Vec<_>>();
+            (tag, rules)
+        })
+        .collect::<HashMap<_, _>>()
+}
+
+fn combinations(input: &str) -> usize {
+    let (workflows, _parts) = input.split_once("\n\n").unwrap();
+
+    let workflows = parse_workflows(workflows);
+
+    combs(&workflows, "A", array::from_fn(|_| 1..4001))
+}
+
+fn combs(workflows: &HashMap<&str, Vec<Rule<'_>>>, dest: &str, ranges: [Range<usize>; 4]) -> usize {
+    if dest == "in" {
+        return ranges.iter().map(|range| range.len()).product();
+    }
+    workflows
+        .iter()
+        .filter_map(|(tag, rules)| {
+            let (i, rule) = rules
+                .iter()
+                .enumerate()
+                .rfind(|(_, rule)| rule.dest == dest)?;
+
+            let mut ranges = ranges.clone();
+
+            if let Some(cond) = &rule.cond {
+                let range = &mut ranges[cond.cat as usize];
+                match cond.op {
+                    Op::Lt => range.end = range.end.min(cond.arg),
+                    Op::Gt => range.start = range.start.max(cond.arg + 1),
+                }
+            }
+
+            for rule in &rules[..i] {
+                let cond = rule.cond.as_ref().unwrap();
+                let range = &mut ranges[cond.cat as usize];
+                match cond.op {
+                    Op::Gt => range.end = range.end.min(cond.arg - 1),
+                    Op::Lt => range.start = range.start.max(cond.arg),
+                }
+            }
+
+            if ranges.iter().any(|range| range.is_empty()) {
+                return None;
+            }
+
+            Some(combs(workflows, tag, ranges))
+        })
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     const INPUT: &str = concat! {
@@ -153,5 +206,11 @@ mod tests {
     fn workflows() {
         let result = super::workflows(INPUT);
         assert_eq!(result, 19114);
+    }
+
+    #[test]
+    fn combinations() {
+        let result = super::combinations(INPUT);
+        assert_eq!(result, 167_409_079_868_000);
     }
 }
