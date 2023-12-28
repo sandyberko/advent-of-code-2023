@@ -18,14 +18,15 @@ enum Op {
     Gt,
 }
 
-enum Rule<'s> {
-    Send(&'s str),
-    Cond {
-        cat: Category,
-        op: Op,
-        arg: usize,
-        dest: &'s str,
-    },
+struct Cond {
+    cat: Category,
+    op: Op,
+    arg: usize,
+}
+
+struct Rule<'s> {
+    cond: Option<Cond>,
+    dest: &'s str,
 }
 
 fn workflows(input: &str) -> usize {
@@ -54,9 +55,15 @@ fn workflows(input: &str) -> usize {
                             op => panic!("invalid op {op}"),
                         };
                         let arg = cond.as_str().parse().unwrap();
-                        Rule::Cond { cat, op, arg, dest }
+                        Rule {
+                            cond: Some(Cond { cat, op, arg }),
+                            dest,
+                        }
                     } else {
-                        Rule::Send(rule)
+                        Rule {
+                            cond: None,
+                            dest: rule,
+                        }
                     }
                 })
                 .collect::<Vec<_>>();
@@ -93,29 +100,26 @@ fn workflows(input: &str) -> usize {
                     return None;
                 }
                 let workflow = workflows.get(tag).unwrap();
-                for rule in workflow {
-                    match rule {
-                        Rule::Send(dest) => {
-                            tag = dest;
-                            continue 'workflows;
-                        }
-                        Rule::Cond { cat, op, arg, dest } => {
-                            let lhs = match cat {
-                                Category::ExtremelyCoolLooking => x,
-                                Category::Musical => m,
-                                Category::Aerodynamic => a,
-                                Category::Shiny => s,
-                            };
-                            let matched = match op {
-                                Op::Lt => lhs < *arg,
-                                Op::Gt => lhs > *arg,
-                            };
-                            if matched {
-                                tag = dest;
-                                continue 'workflows;
-                            }
+                'rules: for rule in workflow {
+                    if let Some(cond) = &rule.cond {
+                        let lhs = match cond.cat {
+                            Category::ExtremelyCoolLooking => x,
+                            Category::Musical => m,
+                            Category::Aerodynamic => a,
+                            Category::Shiny => s,
+                        };
+                        let matched = match cond.op {
+                            Op::Lt => lhs < cond.arg,
+                            Op::Gt => lhs > cond.arg,
+                        };
+
+                        if !matched {
+                            continue 'rules;
                         }
                     }
+
+                    tag = rule.dest;
+                    continue 'workflows;
                 }
                 panic!("no rule matched");
             }
