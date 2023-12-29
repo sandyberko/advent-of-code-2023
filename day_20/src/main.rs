@@ -10,6 +10,7 @@ const INPUT: &str = include_str!("input.txt");
 fn main() {
     println!("Pulse Propagation: {}", pulse_propogation(INPUT));
     // 896998430
+    println!("Pulse to rx: {}", pulse_to_rx(INPUT));
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +70,65 @@ impl AddAssign for Pulses {
 const BROADCASTER: &str = "broadcaster";
 
 fn pulse_propogation(input: &str) -> usize {
+    let state = parse_modules(input);
+
+    let pulses = (1..=1000)
+        .map(|_i| {
+            let mut queue = vec![("button", Pulse::Low, &[BROADCASTER] as &[&str])];
+            let mut pulses = Pulses { low: 0, high: 0 };
+
+            while !queue.is_empty() {
+                let state = &state;
+                queue = queue
+                    .into_iter()
+                    .flat_map(|(src, pulse, dest)| {
+                        match pulse {
+                            Pulse::High => pulses.high += dest.len(),
+                            Pulse::Low => pulses.low += dest.len(),
+                        }
+
+                        dest.iter().flat_map(move |dest| {
+                            // eprintln!("{src} -{pulse:?}-> {dest}");
+                            self::pulse(state, src, dest, pulse)
+                        })
+                    })
+                    .collect();
+            }
+            // eprintln!("{pulses:?}");
+            pulses
+        })
+        .sum::<Pulses>();
+    pulses.high * pulses.low
+}
+
+fn pulse_to_rx(input: &str) -> usize {
+    let state = parse_modules(input);
+
+    let mut presses = 0;
+
+    loop {
+        presses += 1;
+        let mut queue = vec![("button", Pulse::Low, &[BROADCASTER] as &[&str])];
+        while !queue.is_empty() {
+            let state = &state;
+            let mut next_queue = Vec::new();
+            for (src, pulse, dest) in queue {
+                for dest in dest.iter() {
+                    // eprintln!("{src} -{pulse:?}-> {dest}");
+                    if pulse == Pulse::Low && *dest == "rx" {
+                        return presses;
+                    }
+                    if let Some(queued) = self::pulse(state, src, dest, pulse) {
+                        next_queue.push(queued);
+                    }
+                }
+            }
+            queue = next_queue;
+        }
+    }
+}
+
+fn parse_modules(input: &str) -> HashMap<&str, Module<'_>> {
     let mut state = input
         .lines()
         .map(|line| {
@@ -101,39 +161,7 @@ fn pulse_propogation(input: &str) -> usize {
             }
         }
     }
-
-    let pulses = (1..=1000)
-        .map(|_i| {
-            let mut queue = vec![("button", Pulse::Low, &[BROADCASTER] as &[&str])];
-            let mut pulses = Pulses { low: 0, high: 0 };
-
-            while !queue.is_empty() {
-                let state = &state;
-                queue = queue
-                    .into_iter()
-                    .flat_map(|(src, pulse, dest)| {
-                        match pulse {
-                            Pulse::High => pulses.high += dest.len(),
-                            Pulse::Low => pulses.low += dest.len(),
-                        }
-
-                        dest.iter().flat_map(move |dest| {
-                            // eprintln!("{src} -{pulse:?}-> {dest}");
-                            self::pulse(state, src, dest, pulse)
-                        })
-                    })
-                    .collect();
-            }
-            // eprintln!("{pulses:?}");
-            pulses
-            // if let Some((j, ..)) = states
-            //     .iter()
-            //     .enumerate()
-            //     .find(|(_, other)| **other == state)
-            // {}
-        })
-        .sum::<Pulses>();
-    pulses.high * pulses.low
+    state
 }
 
 fn pulse<'m, 's>(
