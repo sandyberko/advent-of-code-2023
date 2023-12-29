@@ -1,9 +1,10 @@
-use std::{array, collections::HashMap, ops::Range};
+use std::{array, collections::HashMap, fmt::Display, ops::Range};
 
 const INPUT: &str = include_str!("input.txt");
 
 fn main() {
     println!("Accepted: {}", workflows(INPUT));
+    println!("Combinations: {}", combinations(INPUT));
 }
 
 #[derive(Clone, Copy)]
@@ -14,9 +15,29 @@ enum Category {
     Shiny,
 }
 
+impl Display for Category {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Category::ExtremelyCoolLooking => write!(f, "x"),
+            Category::Musical => write!(f, "m"),
+            Category::Aerodynamic => write!(f, "a"),
+            Category::Shiny => write!(f, "s"),
+        }
+    }
+}
+
 enum Op {
     Lt,
     Gt,
+}
+
+impl Display for Op {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Op::Lt => write!(f, "<"),
+            Op::Gt => write!(f, ">"),
+        }
+    }
 }
 
 struct Cond {
@@ -28,6 +49,14 @@ struct Cond {
 struct Rule<'s> {
     cond: Option<Cond>,
     dest: &'s str,
+}
+impl Display for Rule<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(Cond { cat, op, arg }) = &self.cond {
+            write!(f, "{cat}{op}{arg}:")?;
+        }
+        write!(f, "{}", self.dest)
+    }
 }
 
 fn workflows(input: &str) -> usize {
@@ -146,36 +175,36 @@ fn combs(workflows: &HashMap<&str, Vec<Rule<'_>>>, dest: &str, ranges: [Range<us
     }
     workflows
         .iter()
-        .filter_map(|(tag, rules)| {
-            let (i, rule) = rules
-                .iter()
-                .enumerate()
-                .rfind(|(_, rule)| rule.dest == dest)?;
-
-            let mut ranges = ranges.clone();
-
-            if let Some(cond) = &rule.cond {
-                let range = &mut ranges[cond.cat as usize];
-                match cond.op {
-                    Op::Lt => range.end = range.end.min(cond.arg),
-                    Op::Gt => range.start = range.start.max(cond.arg + 1),
+        .flat_map(|(tag, rules)| {
+            rules.iter().enumerate().filter_map(|(i, rule)| {
+                if rule.dest != dest {
+                    return None;
                 }
-            }
+                let mut ranges = ranges.clone();
 
-            for rule in &rules[..i] {
-                let cond = rule.cond.as_ref().unwrap();
-                let range = &mut ranges[cond.cat as usize];
-                match cond.op {
-                    Op::Gt => range.end = range.end.min(cond.arg - 1),
-                    Op::Lt => range.start = range.start.max(cond.arg),
+                if let Some(cond) = &rule.cond {
+                    let range = &mut ranges[cond.cat as usize];
+                    match cond.op {
+                        Op::Lt => range.end = range.end.min(cond.arg),
+                        Op::Gt => range.start = range.start.max(cond.arg + 1),
+                    }
                 }
-            }
 
-            if ranges.iter().any(|range| range.is_empty()) {
-                return None;
-            }
+                for rule in &rules[..i] {
+                    let cond = rule.cond.as_ref().unwrap();
+                    let range = &mut ranges[cond.cat as usize];
+                    match cond.op {
+                        Op::Lt => range.start = range.start.max(cond.arg),
+                        Op::Gt => range.end = range.end.min(cond.arg + 1),
+                    }
+                }
 
-            Some(combs(workflows, tag, ranges))
+                if ranges.iter().any(|range| range.is_empty()) {
+                    return None;
+                }
+
+                Some(combs(workflows, tag, ranges))
+            })
         })
         .sum()
 }
