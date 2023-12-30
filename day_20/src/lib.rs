@@ -1,4 +1,4 @@
-use num::{integer::lcm, traits::Pow};
+use num::integer::lcm;
 use owo_colors::OwoColorize;
 use std::{
     array,
@@ -120,7 +120,7 @@ impl<'s> Schema<'s> {
         let rx = self.ids["rx"];
         let inital_dest = [self.ids[BROADCASTER]];
 
-        // receive_period(&state, Pulse::Low, "rx")
+        self.receive_period(Pulse::Low, rx)
 
         // let (mut flips, mut conjs) = (Vec::new(), Vec::new());
         // for (tag, module) in &state {
@@ -131,52 +131,52 @@ impl<'s> Schema<'s> {
         //     }
         // }
 
-        let mut presses = 0;
+        // let mut presses = 0;
 
-        loop {
-            presses += 1;
-            if self.button_press(inital_dest, rx) {
-                return presses;
-            }
-            if presses % 2usize.pow(17) == 0 {
-                eprint!("\x1B[2J\x1B[1;1H{presses}");
-            }
+        // loop {
+        //     presses += 1;
+        //     if self.button_press(inital_dest, rx) {
+        //         return presses;
+        //     }
+        //     if presses % 2usize.pow(17) == 0 {
+        //         eprint!("\x1B[2J\x1B[1;1H{presses}");
+        //     }
 
-            // eprint!("Press any key...");
-            // io::stderr().flush().unwrap();
-            // io::stdin().read_line(&mut String::new()).unwrap();
-            // eprint!("\x1B[2J\x1B[1;1H");
+        //     // eprint!("Press any key...");
+        //     // io::stderr().flush().unwrap();
+        //     // io::stdin().read_line(&mut String::new()).unwrap();
+        //     // eprint!("\x1B[2J\x1B[1;1H");
 
-            // for (i, tag) in flips.iter().enumerate() {
-            //     if let ModuleType::Flip(state) = &state.get(*tag).unwrap().ty {
-            //         if i > 0 && i % 10 == 0 {
-            //             eprintln!()
-            //         }
+        //     // for (i, tag) in flips.iter().enumerate() {
+        //     //     if let ModuleType::Flip(state) = &state.get(*tag).unwrap().ty {
+        //     //         if i > 0 && i % 10 == 0 {
+        //     //             eprintln!()
+        //     //         }
 
-            //         match state.get() {
-            //             Pulse::High => eprint!("{} ", tag.green()),
-            //             Pulse::Low => eprint!("{} ", tag.red()),
-            //         }
-            //     }
-            // }
-            // eprintln!();
-            // for tag in &conjs {
-            //     if let ModuleType::Conj(inputs) = &state.get(*tag).unwrap().ty {
-            //         eprint!("{tag}: [");
-            //         for (i, (input, state)) in inputs.iter().enumerate() {
-            //             if i > 0 {
-            //                 eprint!(" ");
-            //             }
-            //             match state.get() {
-            //                 Pulse::High => eprint!("{}", input.green()),
-            //                 Pulse::Low => eprint!("{}", input.red()),
-            //             }
-            //         }
-            //         eprintln!("]");
-            //     }
-            // }
-            // eprintln!("============");
-        }
+        //     //         match state.get() {
+        //     //             Pulse::High => eprint!("{} ", tag.green()),
+        //     //             Pulse::Low => eprint!("{} ", tag.red()),
+        //     //         }
+        //     //     }
+        //     // }
+        //     // eprintln!();
+        //     // for tag in &conjs {
+        //     //     if let ModuleType::Conj(inputs) = &state.get(*tag).unwrap().ty {
+        //     //         eprint!("{tag}: [");
+        //     //         for (i, (input, state)) in inputs.iter().enumerate() {
+        //     //             if i > 0 {
+        //     //                 eprint!(" ");
+        //     //             }
+        //     //             match state.get() {
+        //     //                 Pulse::High => eprint!("{}", input.green()),
+        //     //                 Pulse::Low => eprint!("{}", input.red()),
+        //     //             }
+        //     //         }
+        //     //         eprintln!("]");
+        //     //     }
+        //     // }
+        //     // eprintln!("============");
+        // }
     }
 
     pub fn button_press(&self, inital_dest: [usize; 1], rx: usize) -> bool {
@@ -199,62 +199,64 @@ impl<'s> Schema<'s> {
         false
     }
 
-    // fn receive_period(modules: &HashMap<&str, Module<'_>>, pulse: Pulse, target: &str) -> usize {
-    //     eprintln!("receive {target} {pulse:?}");
-    //     if let Some(period) = modules
-    //         .iter()
-    //         .filter_map(|(src_tag, src_module)| {
-    //             if !src_module.dest.contains(&target) {
-    //                 return None;
-    //             }
+    fn receive_period(&self, pulse: Pulse, target: usize) -> usize {
+        eprintln!("receive {} {pulse:?}", self.modules[target].tag);
+        if let Some(period) = self
+            .modules
+            .iter()
+            .enumerate()
+            .filter_map(|(src_id, src_module)| {
+                if !src_module.dest.contains(&target) {
+                    return None;
+                }
 
-    //             Some(send_period(modules, src_tag, pulse))
-    //         })
-    //         // FIXME that's not true?
-    //         .min()
-    //     {
-    //         period
-    //     } else {
-    //         panic!("{target:?} will never receive a {pulse:?}")
-    //     }
-    // }
+                Some(self.send_period(src_id, pulse))
+            })
+            // FIXME that's not true?
+            .min()
+        {
+            period
+        } else {
+            panic!("{target:?} will never receive a {pulse:?}")
+        }
+    }
 
-    // fn send_period(modules: &HashMap<&str, Module<'_>>, tag: &str, pulse: Pulse) -> usize {
-    //     let module = modules.get(tag).unwrap();
-    //     if let Some(period) = module.send_period[pulse as usize].get() {
-    //         return period;
-    //     }
-    //     eprintln!("send {tag} {pulse:?}");
-    //     let period = match &module.ty {
-    //         ModuleType::Flip(_) => {
-    //             receive_period(modules, Pulse::Low, tag)
-    //                 * match pulse {
-    //                     // the first pulse a flip receives, flips it to high and sends a high
-    //                     Pulse::High => 1,
-    //                     // to send a low, it neesd one more pulse
-    //                     Pulse::Low => 2,
-    //                 }
-    //         }
-    //         ModuleType::Conj(inputs) => match pulse {
-    //             Pulse::High => inputs
-    //                 .keys()
-    //                 .map(|input| send_period(modules, input, Pulse::Low))
-    //                 // FIXME that's not true either, it doesn't consider the case when high is sent but not all inputs are high
-    //                 .min()
-    //                 .expect("conj to have at least one input"),
-    //             Pulse::Low => inputs
-    //                 .keys()
-    //                 .map(|input| send_period(modules, input, Pulse::High))
-    //                 .fold(1, lcm),
-    //         },
-    //         ModuleType::Broadcaster => match pulse {
-    //             Pulse::High => panic!("broadcaster never sends high"),
-    //             Pulse::Low => 1,
-    //         },
-    //     };
-    //     module.send_period[pulse as usize].set(Some(period));
-    //     period
-    // }
+    fn send_period(&self, id: usize, pulse: Pulse) -> usize {
+        let module = &self.modules[id];
+        if let Some(period) = module.send_period[pulse as usize].get() {
+            return period;
+        }
+        eprintln!("send {} {pulse:?}", module.tag);
+        let period = match &module.ty {
+            ModuleType::Flip(_) => {
+                self.receive_period(Pulse::Low, id)
+                    * match pulse {
+                        // the first pulse a flip receives, flips it to high and sends a high
+                        Pulse::High => 1,
+                        // to send a low, it neesd one more pulse
+                        Pulse::Low => 2,
+                    }
+            }
+            ModuleType::Conj(inputs) => match pulse {
+                Pulse::High => inputs
+                    .keys()
+                    .map(|input| self.send_period(*input, Pulse::Low))
+                    // FIXME that's not true either, it doesn't consider the case when high is sent but not all inputs are high
+                    .min()
+                    .expect("conj to have at least one input"),
+                Pulse::Low => inputs
+                    .keys()
+                    .map(|input| self.send_period(*input, Pulse::High))
+                    .fold(1, lcm),
+            },
+            ModuleType::Broadcaster => match pulse {
+                Pulse::High => panic!("broadcaster never sends high"),
+                Pulse::Low => 1,
+            },
+        };
+        module.send_period[pulse as usize].set(Some(period));
+        period
+    }
 
     pub fn parse(input: &'s str) -> Self {
         let mut ids = HashMap::new();
