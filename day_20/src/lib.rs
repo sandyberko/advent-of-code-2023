@@ -1,11 +1,12 @@
 use num::integer::lcm;
-use owo_colors::OwoColorize;
 use std::{
     array,
     cell::Cell,
-    collections::HashMap,
-    io::{self, Write},
+    cmp::Ordering,
+    collections::{BinaryHeap, HashMap},
+    default,
     iter::Sum,
+    mem,
     ops::{Add, AddAssign},
 };
 
@@ -13,8 +14,11 @@ use std::{
 struct Module<'s> {
     tag: &'s str,
     ty: ModuleType,
+    state: Cell<Pulse>,
     dest: Vec<usize>,
-    send_period: [Cell<Option<usize>>; 2],
+
+    /// Number of pulses required to reach 'rx' with a `Pulse::Low`
+    pulses: [usize; 2],
 }
 
 impl<'s> Module<'s> {
@@ -22,22 +26,24 @@ impl<'s> Module<'s> {
         Self {
             tag,
             ty,
+            state: Cell::default(),
             dest: Vec::new(),
-            send_period: array::from_fn(|_| Cell::new(None)),
+            pulses: [usize::MAX; 2],
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ModuleType {
-    Flip(Cell<Pulse>),
-    Conj(HashMap<usize, Cell<Pulse>>),
+    Flip,
+    Conj(Vec<usize>),
     Broadcaster,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Pulse {
     High,
+    #[default]
     Low,
 }
 
@@ -76,6 +82,36 @@ impl AddAssign for Pulses {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq)]
+struct State {
+    cost: usize,
+    id: usize,
+    pulse: Pulse,
+}
+
+// The priority queue depends on `Ord`.
+// Explicitly implement the trait so the queue becomes a min-heap
+// instead of a max-heap.
+impl Ord for State {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Notice that the we flip the ordering on costs.
+        // In case of a tie we compare positions - this step is necessary
+        // to make implementations of `PartialEq` and `Ord` consistent.
+        other
+            .cost
+            .cmp(&self.cost)
+            .then_with(|| self.id.cmp(&other.id))
+            .then_with(|| self.pulse.cmp(&other.pulse))
+    }
+}
+
+// `PartialOrd` needs to be implemented as well.
+impl PartialOrd for State {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 pub const BROADCASTER: &str = "broadcaster";
 
 pub struct Schema<'s> {
@@ -85,26 +121,24 @@ pub struct Schema<'s> {
 
 impl<'s> Schema<'s> {
     pub fn pulse_propogation(&self) -> usize {
-        let initial_dest = [self.ids[BROADCASTER]];
-
         let pulses = (1..=1000)
             .map(|_i| {
-                let mut queue = vec![(usize::MAX, Pulse::Low, &initial_dest as &[usize])];
-                let mut pulses = Pulses { low: 0, high: 0 };
+                let mut queue = vec![self.ids[BROADCASTER]];
+                let mut pulses = Pulses { low: 1, high: 0 };
 
                 while !queue.is_empty() {
                     queue = queue
                         .into_iter()
-                        .flat_map(|(src, pulse, dest)| {
-                            match pulse {
-                                Pulse::High => pulses.high += dest.len(),
-                                Pulse::Low => pulses.low += dest.len(),
+                        .flat_map(|src| {
+                            let src = &self.modules[src];
+                            match src.state.get() {
+                                Pulse::High => pulses.high += src.dest.len(),
+                                Pulse::Low => pulses.low += src.dest.len(),
                             }
 
-                            dest.iter().flat_map(move |dest| {
+                            src.dest.iter().filter_map(move |dest| {
                                 // eprintln!("{src} -{pulse:?}-> {dest}");
-                                self.pulse(src, *dest, pulse)
-                                    .map(|(pulse, dests)| (*dest, pulse, dests))
+                                self.pulse(*dest, src.state.get()).then_some(*dest)
                             })
                         })
                         .collect();
@@ -116,146 +150,28 @@ impl<'s> Schema<'s> {
         pulses.high * pulses.low
     }
 
-    pub fn pulse_to_rx(&self) -> usize {
-        let rx = self.ids["rx"];
-        let inital_dest = [self.ids[BROADCASTER]];
+    pub fn button_press(&self, start: usize, rx: usize) -> bool {
+        let mut queue = Vec::with_capacity(self.modules.len());
+        let mut next_queue = Vec::with_capacity(self.modules.len());
 
-        self.receive_period(Pulse::Low, rx)
+        queue.push(start);
 
-        // let (mut flips, mut conjs) = (Vec::new(), Vec::new());
-        // for (tag, module) in &state {
-        //     match &module.ty {
-        //         ModuleType::Flip(_) => flips.push(tag),
-        //         ModuleType::Conj(_) => conjs.push(tag),
-        //         ModuleType::Broadcaster => (),
-        //     }
-        // }
-
-        // let mut presses = 0;
-
-        // loop {
-        //     presses += 1;
-        //     if self.button_press(inital_dest, rx) {
-        //         return presses;
-        //     }
-        //     if presses % 2usize.pow(17) == 0 {
-        //         eprint!("\x1B[2J\x1B[1;1H{presses}");
-        //     }
-
-        //     // eprint!("Press any key...");
-        //     // io::stderr().flush().unwrap();
-        //     // io::stdin().read_line(&mut String::new()).unwrap();
-        //     // eprint!("\x1B[2J\x1B[1;1H");
-
-        //     // for (i, tag) in flips.iter().enumerate() {
-        //     //     if let ModuleType::Flip(state) = &state.get(*tag).unwrap().ty {
-        //     //         if i > 0 && i % 10 == 0 {
-        //     //             eprintln!()
-        //     //         }
-
-        //     //         match state.get() {
-        //     //             Pulse::High => eprint!("{} ", tag.green()),
-        //     //             Pulse::Low => eprint!("{} ", tag.red()),
-        //     //         }
-        //     //     }
-        //     // }
-        //     // eprintln!();
-        //     // for tag in &conjs {
-        //     //     if let ModuleType::Conj(inputs) = &state.get(*tag).unwrap().ty {
-        //     //         eprint!("{tag}: [");
-        //     //         for (i, (input, state)) in inputs.iter().enumerate() {
-        //     //             if i > 0 {
-        //     //                 eprint!(" ");
-        //     //             }
-        //     //             match state.get() {
-        //     //                 Pulse::High => eprint!("{}", input.green()),
-        //     //                 Pulse::Low => eprint!("{}", input.red()),
-        //     //             }
-        //     //         }
-        //     //         eprintln!("]");
-        //     //     }
-        //     // }
-        //     // eprintln!("============");
-        // }
-    }
-
-    pub fn button_press(&self, inital_dest: [usize; 1], rx: usize) -> bool {
-        let mut queue = vec![(usize::MAX, Pulse::Low, &inital_dest as &[usize])];
         while !queue.is_empty() {
-            let mut next_queue = Vec::new();
-            for (src, pulse, dest) in queue {
-                for dest in dest.iter() {
+            for src in queue.drain(0..) {
+                let src = &self.modules[src];
+                for dest in &src.dest {
                     // eprintln!("{src} -{pulse:?}-> {dest}");
-                    if pulse == Pulse::Low && *dest == rx {
+                    if src.state.get() == Pulse::Low && *dest == rx {
                         return true;
                     }
-                    if let Some((pulse, dests)) = self.pulse(src, *dest, pulse) {
-                        next_queue.push((*dest, pulse, dests));
+                    if self.pulse(*dest, src.state.get()) {
+                        next_queue.push(*dest);
                     }
                 }
             }
-            queue = next_queue;
+            mem::swap(&mut queue, &mut next_queue);
         }
         false
-    }
-
-    fn receive_period(&self, pulse: Pulse, target: usize) -> usize {
-        eprintln!("receive {} {pulse:?}", self.modules[target].tag);
-        if let Some(period) = self
-            .modules
-            .iter()
-            .enumerate()
-            .filter_map(|(src_id, src_module)| {
-                if !src_module.dest.contains(&target) {
-                    return None;
-                }
-
-                Some(self.send_period(src_id, pulse))
-            })
-            // FIXME that's not true?
-            .min()
-        {
-            period
-        } else {
-            panic!("{target:?} will never receive a {pulse:?}")
-        }
-    }
-
-    fn send_period(&self, id: usize, pulse: Pulse) -> usize {
-        let module = &self.modules[id];
-        if let Some(period) = module.send_period[pulse as usize].get() {
-            return period;
-        }
-        eprintln!("send {} {pulse:?}", module.tag);
-        let period = match &module.ty {
-            ModuleType::Flip(_) => {
-                self.receive_period(Pulse::Low, id)
-                    * match pulse {
-                        // the first pulse a flip receives, flips it to high and sends a high
-                        Pulse::High => 1,
-                        // to send a low, it neesd one more pulse
-                        Pulse::Low => 2,
-                    }
-            }
-            ModuleType::Conj(inputs) => match pulse {
-                Pulse::High => inputs
-                    .keys()
-                    .map(|input| self.send_period(*input, Pulse::Low))
-                    // FIXME that's not true either, it doesn't consider the case when high is sent but not all inputs are high
-                    .min()
-                    .expect("conj to have at least one input"),
-                Pulse::Low => inputs
-                    .keys()
-                    .map(|input| self.send_period(*input, Pulse::High))
-                    .fold(1, lcm),
-            },
-            ModuleType::Broadcaster => match pulse {
-                Pulse::High => panic!("broadcaster never sends high"),
-                Pulse::Low => 1,
-            },
-        };
-        module.send_period[pulse as usize].set(Some(period));
-        period
     }
 
     pub fn parse(input: &'s str) -> Self {
@@ -271,9 +187,9 @@ impl<'s> Schema<'s> {
                 let (tag, ty) = if tag == BROADCASTER {
                     (tag, ModuleType::Broadcaster)
                 } else if let Some(tag) = tag.strip_prefix('%') {
-                    (tag, ModuleType::Flip(Cell::new(Pulse::Low)))
+                    (tag, ModuleType::Flip)
                 } else if let Some(tag) = tag.strip_prefix('&') {
-                    (tag, ModuleType::Conj(HashMap::new()))
+                    (tag, ModuleType::Conj(Vec::new()))
                 } else {
                     panic!("invalid module {tag:?}")
                 };
@@ -296,36 +212,156 @@ impl<'s> Schema<'s> {
                 });
                 modules[id].dest.push(*dest_id);
                 if let ModuleType::Conj(inputs) = &mut modules[*dest_id].ty {
-                    inputs.insert(id, Cell::new(Pulse::Low));
+                    inputs.push(id);
                 }
             }
         }
         Self { modules, ids }
     }
 
-    fn pulse(&self, src: usize, dest: usize, pulse: Pulse) -> Option<(Pulse, &[usize])> {
-        let module = self.modules.get(dest)?;
-        match &module.ty {
-            ModuleType::Flip(state) => match pulse {
-                Pulse::Low => {
-                    state.set(match state.get() {
-                        Pulse::High => Pulse::Low,
-                        Pulse::Low => Pulse::High,
-                    });
-                    Some((state.get(), &module.dest))
-                }
-                Pulse::High => None,
+    /// if returns true, `self.modules[dest]` sould pulse next.
+    fn pulse(&self, dest: usize, pulse: Pulse) -> bool {
+        let Some(module) = self.modules.get(dest) else {
+            return false;
+        };
+        let state = match &module.ty {
+            ModuleType::Flip => match pulse {
+                Pulse::Low => match module.state.get() {
+                    Pulse::High => Pulse::Low,
+                    Pulse::Low => Pulse::High,
+                },
+                Pulse::High => return false,
             },
             ModuleType::Conj(inputs) => {
-                inputs[&src].set(pulse);
-                let pulse = if inputs.values().all(|pulse| pulse.get() == Pulse::High) {
+                if inputs
+                    .iter()
+                    .all(|id| self.modules[*id].state.get() == Pulse::High)
+                {
                     Pulse::Low
                 } else {
                     Pulse::High
-                };
-                Some((pulse, &module.dest))
+                }
             }
-            ModuleType::Broadcaster => Some((pulse, &module.dest)),
+            ModuleType::Broadcaster => pulse,
+        };
+        module.state.set(state);
+
+        true
+    }
+
+    pub fn pulse_to_rx(&self) -> usize {
+        let rx = self.ids["rx"];
+        // let (mut flips, mut conjs) = (Vec::new(), Vec::new());
+        // for (tag, module) in &state {
+        //     match &module.ty {
+        //         ModuleType::Flip(_) => flips.push(tag),
+        //         ModuleType::Conj(_) => conjs.push(tag),
+        //         ModuleType::Broadcaster => (),
+        //     }
+        // }
+
+        let mut presses = 0;
+
+        loop {
+            presses += 1;
+            if self.button_press(self.ids[BROADCASTER], rx) {
+                return presses;
+            }
+            if presses % 2usize.pow(24) == 0 {
+                eprint!("\x1B[2J\x1B[1;1H{presses}");
+            }
+
+            // eprint!("Press any key...");
+            // io::stderr().flush().unwrap();
+            // io::stdin().read_line(&mut String::new()).unwrap();
+            // eprint!("\x1B[2J\x1B[1;1H");
+
+            // for (i, tag) in flips.iter().enumerate() {
+            //     if let ModuleType::Flip(state) = &state.get(*tag).unwrap().ty {
+            //         if i > 0 && i % 10 == 0 {
+            //             eprintln!()
+            //         }
+
+            //         match state.get() {
+            //             Pulse::High => eprint!("{} ", tag.green()),
+            //             Pulse::Low => eprint!("{} ", tag.red()),
+            //         }
+            //     }
+            // }
+            // eprintln!();
+            // for tag in &conjs {
+            //     if let ModuleType::Conj(inputs) = &state.get(*tag).unwrap().ty {
+            //         eprint!("{tag}: [");
+            //         for (i, (input, state)) in inputs.iter().enumerate() {
+            //             if i > 0 {
+            //                 eprint!(" ");
+            //             }
+            //             match state.get() {
+            //                 Pulse::High => eprint!("{}", input.green()),
+            //                 Pulse::Low => eprint!("{}", input.red()),
+            //             }
+            //         }
+            //         eprintln!("]");
+            //     }
+            // }
+            // eprintln!("============");
         }
     }
+
+    // Dijkstra's shortest path algorithm.
+
+    // Start at `start` and use `dist` to track the current shortest distance
+    // to each node. This implementation isn't memory-efficient as it may leave duplicate
+    // nodes in the queue. It also uses `usize::MAX` as a sentinel value,
+    // for a simpler implementation.
+    // fn shortest_path(&mut self, start: usize, goal: usize) -> Option<usize> {
+    //     let mut heap = BinaryHeap::new();
+
+    //     // We're at `start`, with a zero cost
+    //     self.modules[start].pulses[Pulse::Low as usize] = 0;
+    //     heap.push(State {
+    //         cost: 0,
+    //         id: start,
+    //         pulse: Pulse::Low,
+    //     });
+
+    //     // Examine the frontier with lower cost nodes first (min-heap)
+    //     while let Some(State { cost, id, pulse }) = heap.pop() {
+    //         // Alternatively we could have continued to find all shortest paths
+    //         if id == goal && pulse == Pulse::Low {
+    //             return Some(cost);
+    //         }
+
+    //         // Important as we may have already found a better way
+    //         if cost > self.modules[id].pulses[pulse as usize] {
+    //             continue;
+    //         }
+
+    //         // For each node we can reach, see if we can find a way with
+    //         // a lower cost going through this node
+    //         match &self.modules[id].ty {
+    //             ModuleType::Flip(_) => {
+
+    //             },
+    //             ModuleType::Conj(_) => todo!(),
+    //             ModuleType::Broadcaster => unreachable!(),
+    //         }
+    //         for edge in &adj_list[position] {
+    //             let next = State {
+    //                 cost: cost + edge.cost,
+    //                 position: edge.node,
+    //             };
+
+    //             // If so, add it to the frontier and continue
+    //             if next.cost < dist[next.position] {
+    //                 heap.push(next);
+    //                 // Relaxation, we have now found a better way
+    //                 dist[next.position] = next.cost;
+    //             }
+    //         }
+    //     }
+
+    //     // Goal not reachable
+    //     None
+    // }
 }
