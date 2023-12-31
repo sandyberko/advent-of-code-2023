@@ -11,7 +11,7 @@ use std::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Module<'s> {
+pub struct Module<'s> {
     tag: &'s str,
     ty: ModuleType,
     state: Cell<Pulse>,
@@ -48,7 +48,7 @@ enum Pulse {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Pulses {
+pub struct Pulses {
     low: usize,
     high: usize,
 }
@@ -115,63 +115,51 @@ impl PartialOrd for State {
 pub const BROADCASTER: &str = "broadcaster";
 
 pub struct Schema<'s> {
-    modules: Vec<Module<'s>>,
+    pub modules: Vec<Module<'s>>,
     pub ids: HashMap<&'s str, usize>,
 }
 
 impl<'s> Schema<'s> {
     pub fn pulse_propogation(&self) -> usize {
+        let mut queues = array::from_fn(|_| Vec::with_capacity(self.modules.len()));
+
         let pulses = (1..=1000)
             .map(|_i| {
-                let mut queue = vec![self.ids[BROADCASTER]];
-                let mut pulses = Pulses { low: 1, high: 0 };
-
-                while !queue.is_empty() {
-                    queue = queue
-                        .into_iter()
-                        .flat_map(|src| {
-                            let src = &self.modules[src];
-                            match src.state.get() {
-                                Pulse::High => pulses.high += src.dest.len(),
-                                Pulse::Low => pulses.low += src.dest.len(),
-                            }
-
-                            src.dest.iter().filter_map(move |dest| {
-                                // eprintln!("{src} -{pulse:?}-> {dest}");
-                                self.pulse(*dest, src.state.get()).then_some(*dest)
-                            })
-                        })
-                        .collect();
-                }
-                // eprintln!("{pulses:?}");
-                pulses
+                queues[0].push(self.ids[BROADCASTER]);
+                self.button_press(usize::MAX, &mut queues).0
             })
             .sum::<Pulses>();
         pulses.high * pulses.low
     }
 
-    pub fn button_press(&self, start: usize, rx: usize) -> bool {
-        let mut queue = Vec::with_capacity(self.modules.len());
-        let mut next_queue = Vec::with_capacity(self.modules.len());
-
-        queue.push(start);
+    pub fn button_press(
+        &self,
+        rx: usize,
+        [queue, next_queue]: &mut [Vec<usize>; 2],
+    ) -> (Pulses, bool) {
+        let mut pulses = Pulses { low: 1, high: 0 };
 
         while !queue.is_empty() {
             for src in queue.drain(0..) {
                 let src = &self.modules[src];
+                match src.state.get() {
+                    Pulse::High => pulses.high += src.dest.len(),
+                    Pulse::Low => pulses.low += src.dest.len(),
+                }
                 for dest in &src.dest {
                     // eprintln!("{src} -{pulse:?}-> {dest}");
+
                     if src.state.get() == Pulse::Low && *dest == rx {
-                        return true;
+                        return (pulses, true);
                     }
                     if self.pulse(*dest, src.state.get()) {
                         next_queue.push(*dest);
                     }
                 }
             }
-            mem::swap(&mut queue, &mut next_queue);
+            mem::swap(queue, next_queue);
         }
-        false
+        (pulses, false)
     }
 
     pub fn parse(input: &'s str) -> Self {
@@ -262,12 +250,15 @@ impl<'s> Schema<'s> {
 
         let mut presses = 0;
 
+        let mut queues = array::from_fn(|_| Vec::with_capacity(self.modules.len()));
+        queues[0].push(self.ids[BROADCASTER]);
+
         loop {
             presses += 1;
-            if self.button_press(self.ids[BROADCASTER], rx) {
+            if self.button_press(rx, &mut queues).1 {
                 return presses;
             }
-            if presses % 2usize.pow(24) == 0 {
+            if presses % 2usize.pow(32) == 0 {
                 eprint!("\x1B[2J\x1B[1;1H{presses}");
             }
 
