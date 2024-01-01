@@ -1,4 +1,7 @@
-digraph G {
+digraph {
+    bgcolor="#0d1117"
+    node [fontcolor="white" color="white" fontname="Monaspace Argon Var"]
+    edge [color="white"]
     cd [shape=diamond] cd -> jx, gh;
     bk [shape=diamond] bk -> jp, cn;
     px [shape=diamond] px -> xc, hg;
