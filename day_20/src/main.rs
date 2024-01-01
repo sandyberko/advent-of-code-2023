@@ -3,12 +3,13 @@ use day_20::Schema;
 const INPUT: &str = include_str!("input.txt");
 
 fn main() {
-    println!(
-        "Pulse Propagation: {}",
-        Schema::parse(INPUT).pulse_propogation()
-    );
-    // 896998430
-    println!("Pulse to rx: {}", Schema::parse(INPUT).pulse_to_rx());
+    // println!(
+    //     "Pulse Propagation: {}",
+    //     Schema::parse(INPUT).pulse_propogation()
+    // );
+    // // 896998430
+    // println!("Pulse to rx: {}", Schema::parse(INPUT).calc_to_rx());
+    Schema::parse(INPUT).pulse_to_rx();
 }
 #[cfg(test)]
 mod tests {

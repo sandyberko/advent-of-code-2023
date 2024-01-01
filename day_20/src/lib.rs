@@ -1,24 +1,26 @@
-use num::integer::lcm;
 use std::{
     array,
     cell::Cell,
     cmp::Ordering,
-    collections::{BinaryHeap, HashMap},
-    default,
+    collections::{BTreeMap, HashMap},
+    fs,
+    io::{self, BufWriter, Write},
     iter::Sum,
     mem,
     ops::{Add, AddAssign},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+use num::Integer;
+use owo_colors::OwoColorize;
+
+#[derive(Debug, PartialEq, Eq)]
 pub struct Module<'s> {
     tag: &'s str,
     ty: ModuleType,
     state: Cell<Pulse>,
     dest: Vec<usize>,
 
-    /// Number of pulses required to reach 'rx' with a `Pulse::Low`
-    pulses: [usize; 2],
+    pulses: BTreeMap<Wave, Pulse>,
 }
 
 impl<'s> Module<'s> {
@@ -28,7 +30,7 @@ impl<'s> Module<'s> {
             ty,
             state: Cell::default(),
             dest: Vec::new(),
-            pulses: [usize::MAX; 2],
+            pulses: BTreeMap::new(),
         }
     }
 }
@@ -38,6 +40,24 @@ enum ModuleType {
     Flip,
     Conj(Vec<usize>),
     Broadcaster,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Wave {
+    freq: usize,
+    phase: usize,
+}
+
+impl Wave {
+    fn new(freq: usize, phase: usize) -> Self {
+        assert!(phase < freq);
+        Self { freq, phase }
+    }
+
+    fn intersect(&self, other_n: Self) -> Option<Self> {
+        (other_n.phase % self.freq == 0)
+            .then_some(Self::new(self.freq.lcm(&other_n.freq), self.phase))
+    }
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -126,13 +146,13 @@ impl<'s> Schema<'s> {
         let pulses = (1..=1000)
             .map(|_i| {
                 queues[0].push(self.ids[BROADCASTER]);
-                self.button_press(usize::MAX, &mut queues).0
+                self.poll_pulses(usize::MAX, &mut queues).0
             })
             .sum::<Pulses>();
         pulses.high * pulses.low
     }
 
-    pub fn button_press(
+    pub fn poll_pulses(
         &self,
         rx: usize,
         [queue, next_queue]: &mut [Vec<usize>; 2],
@@ -147,7 +167,12 @@ impl<'s> Schema<'s> {
                     Pulse::Low => pulses.low += src.dest.len(),
                 }
                 for dest in &src.dest {
-                    // eprintln!("{src} -{pulse:?}-> {dest}");
+                    eprintln!(
+                        "{} -{:?}-> {}",
+                        src.tag,
+                        src.state.get(),
+                        self.modules[*dest].tag
+                    );
 
                     if src.state.get() == Pulse::Low && *dest == rx {
                         return (pulses, true);
@@ -239,120 +264,186 @@ impl<'s> Schema<'s> {
 
     pub fn pulse_to_rx(&self) -> usize {
         let rx = self.ids["rx"];
-        // let (mut flips, mut conjs) = (Vec::new(), Vec::new());
-        // for (tag, module) in &state {
-        //     match &module.ty {
-        //         ModuleType::Flip(_) => flips.push(tag),
-        //         ModuleType::Conj(_) => conjs.push(tag),
-        //         ModuleType::Broadcaster => (),
-        //     }
-        // }
-
         let mut presses = 0;
 
         let mut queues = array::from_fn(|_| Vec::with_capacity(self.modules.len()));
-        queues[0].push(self.ids[BROADCASTER]);
 
         loop {
+            eprint!("Press any key...");
+            io::stderr().flush().unwrap();
+            io::stdin().read_line(&mut String::new()).unwrap();
+
             presses += 1;
-            if self.button_press(rx, &mut queues).1 {
+            eprintln!("\x1B[2J\x1B[1;1H{presses}");
+
+            queues[0].push(self.ids[BROADCASTER]);
+            if self.poll_pulses(rx, &mut queues).1 {
                 return presses;
             }
             if presses % 2usize.pow(32) == 0 {
                 eprint!("\x1B[2J\x1B[1;1H{presses}");
             }
 
-            // eprint!("Press any key...");
-            // io::stderr().flush().unwrap();
-            // io::stdin().read_line(&mut String::new()).unwrap();
-            // eprint!("\x1B[2J\x1B[1;1H");
-
-            // for (i, tag) in flips.iter().enumerate() {
-            //     if let ModuleType::Flip(state) = &state.get(*tag).unwrap().ty {
-            //         if i > 0 && i % 10 == 0 {
-            //             eprintln!()
-            //         }
-
-            //         match state.get() {
-            //             Pulse::High => eprint!("{} ", tag.green()),
-            //             Pulse::Low => eprint!("{} ", tag.red()),
-            //         }
+            // for (i, module) in self.modules.iter().enumerate() {
+            //     if i > 0 && i % 10 == 0 {
+            //         eprintln!()
+            //     }
+            //     match module.state.get() {
+            //         Pulse::High => eprint!("{} ", module.tag.green()),
+            //         Pulse::Low => eprint!("{} ", module.tag.red()),
             //     }
             // }
             // eprintln!();
-            // for tag in &conjs {
-            //     if let ModuleType::Conj(inputs) = &state.get(*tag).unwrap().ty {
-            //         eprint!("{tag}: [");
-            //         for (i, (input, state)) in inputs.iter().enumerate() {
-            //             if i > 0 {
-            //                 eprint!(" ");
-            //             }
-            //             match state.get() {
-            //                 Pulse::High => eprint!("{}", input.green()),
-            //                 Pulse::Low => eprint!("{}", input.red()),
-            //             }
-            //         }
-            //         eprintln!("]");
-            //     }
-            // }
             // eprintln!("============");
         }
     }
 
-    // Dijkstra's shortest path algorithm.
+    pub fn calc_to_rx(&mut self) -> usize {
+        let rx = self.ids["rx"];
 
-    // Start at `start` and use `dist` to track the current shortest distance
-    // to each node. This implementation isn't memory-efficient as it may leave duplicate
-    // nodes in the queue. It also uses `usize::MAX` as a sentinel value,
-    // for a simpler implementation.
-    // fn shortest_path(&mut self, start: usize, goal: usize) -> Option<usize> {
-    //     let mut heap = BinaryHeap::new();
+        let mut queues = array::from_fn(|_| Vec::with_capacity(self.modules.len()));
+        queues[0].push(self.ids[BROADCASTER]);
 
-    //     // We're at `start`, with a zero cost
-    //     self.modules[start].pulses[Pulse::Low as usize] = 0;
-    //     heap.push(State {
-    //         cost: 0,
-    //         id: start,
-    //         pulse: Pulse::Low,
-    //     });
+        let result = self.calc_pulses(rx, &mut queues);
 
-    //     // Examine the frontier with lower cost nodes first (min-heap)
-    //     while let Some(State { cost, id, pulse }) = heap.pop() {
-    //         // Alternatively we could have continued to find all shortest paths
-    //         if id == goal && pulse == Pulse::Low {
-    //             return Some(cost);
-    //         }
+        let mut f = BufWriter::new(
+            fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open("target/to_rx.dot")
+                .unwrap(),
+        );
 
-    //         // Important as we may have already found a better way
-    //         if cost > self.modules[id].pulses[pulse as usize] {
-    //             continue;
-    //         }
+        writeln!(
+            &mut f,
+            "{}",
+            r##"digraph {
+    bgcolor="#0d1117"
+    node [fontcolor="white" color="white" fontname="Monaspace Argon Var"]
+    edge [color="white"]"##
+        )
+        .unwrap();
 
-    //         // For each node we can reach, see if we can find a way with
-    //         // a lower cost going through this node
-    //         match &self.modules[id].ty {
-    //             ModuleType::Flip(_) => {
+        for Module {
+            tag,
+            ty,
+            dest,
+            pulses,
+            ..
+        } in &self.modules
+        {
+            let shape = match ty {
+                ModuleType::Flip => "diamond",
+                ModuleType::Conj(_) => "cube",
+                ModuleType::Broadcaster => "circle",
+            };
+            write!(&mut f, "\t{tag} [shape={shape} xlabel=\"").unwrap();
+            for (Wave { freq, phase }, pulse) in pulses {
+                let pulse = match pulse {
+                    Pulse::High => "H",
+                    Pulse::Low => "L",
+                };
+                write!(&mut f, "{pulse}*{freq}+{phase}\\n").unwrap();
+            }
+            write!(&mut f, "\"]").unwrap();
+            for (i, dest) in dest.iter().enumerate() {
+                match i {
+                    0 => write!(&mut f, "{tag} -> ").unwrap(),
+                    _ => write!(&mut f, ", ").unwrap(),
+                }
+                write!(&mut f, "{}", self.modules[*dest].tag).unwrap();
+            }
+            writeln!(&mut f, ";").unwrap();
+        }
+        writeln!(&mut f, "}}").unwrap();
 
-    //             },
-    //             ModuleType::Conj(_) => todo!(),
-    //             ModuleType::Broadcaster => unreachable!(),
-    //         }
-    //         for edge in &adj_list[position] {
-    //             let next = State {
-    //                 cost: cost + edge.cost,
-    //                 position: edge.node,
-    //             };
+        result
+    }
 
-    //             // If so, add it to the frontier and continue
-    //             if next.cost < dist[next.position] {
-    //                 heap.push(next);
-    //                 // Relaxation, we have now found a better way
-    //                 dist[next.position] = next.cost;
-    //             }
-    //         }
-    //     }
+    pub fn calc_pulses(&mut self, rx: usize, [queue, next_queue]: &mut [Vec<usize>; 2]) -> usize {
+        for broadcaster in queue.iter() {
+            self.modules[*broadcaster]
+                .pulses
+                .insert(Wave::new(1, 0), Pulse::Low);
+        }
 
-    //     // Goal not reachable
-    //     None
-    // }
+        while !queue.is_empty() {
+            for src in queue.drain(0..) {
+                for dest in self.modules[src].dest.clone() {
+                    // eprintln!("{} -> {}", self.modules[src].tag, self.modules[dest].tag);
+
+                    if dest == rx {
+                        for (n, pulse) in &self.modules[src].pulses {
+                            if *pulse == Pulse::Low {
+                                return n.freq + n.phase;
+                            }
+                        }
+                    }
+
+                    match self.modules[dest].ty.clone() {
+                        ModuleType::Flip => {
+                            let mut new_pulses = false;
+                            for (n, pulse) in self.modules[src].pulses.clone() {
+                                if pulse == Pulse::Low {
+                                    new_pulses |= self.modules[dest]
+                                        .pulses
+                                        .insert(Wave::new(n.freq * 2, n.phase), Pulse::High)
+                                        .is_none();
+
+                                    new_pulses |= self.modules[dest]
+                                        .pulses
+                                        .insert(Wave::new(n.freq * 2, n.phase + 1), Pulse::Low)
+                                        .is_none();
+                                }
+                            }
+                            if !new_pulses {
+                                continue;
+                            }
+                        }
+                        ModuleType::Conj(inputs) => {
+                            // on each `input` wave:
+                            //     if everyone is High put Low,
+                            //     otherwise High.
+                            for &input in &inputs {
+                                for (n, pulse) in self.modules[input].pulses.clone() {
+                                    match pulse {
+                                        Pulse::High => {
+                                            for &other_in in &inputs {
+                                                if other_in == input {
+                                                    continue;
+                                                }
+                                                for (other_n, pulse) in
+                                                    self.modules[other_in].pulses.clone()
+                                                {
+                                                    if pulse != Pulse::High {
+                                                        continue;
+                                                    }
+                                                    if let Some(intersection) = n.intersect(other_n)
+                                                    {
+                                                        self.modules[dest]
+                                                            .pulses
+                                                            .insert(intersection, Pulse::Low);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Pulse::Low => {
+                                            self.modules[dest].pulses.insert(n, Pulse::High);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        ModuleType::Broadcaster => {
+                            self.modules[dest].pulses = self.modules[src].pulses.clone();
+                        }
+                    };
+
+                    next_queue.push(dest);
+                }
+            }
+            mem::swap(queue, next_queue);
+        }
+        panic!("rx never gets a low pulse");
+    }
 }

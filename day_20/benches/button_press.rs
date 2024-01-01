@@ -13,7 +13,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("button press", |b| {
         b.iter(|| {
             queues[0].push(schema.ids[BROADCASTER]);
-            schema.button_press(rx, &mut queues)
+            schema.poll_pulses(rx, &mut queues)
         })
     });
 }
