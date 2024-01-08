@@ -7,11 +7,10 @@ use std::{
     io::{self, BufWriter, Write},
     iter::Sum,
     mem,
-    ops::{Add, AddAssign},
+    ops::{Add, AddAssign, Not},
 };
 
 use num::Integer;
-use owo_colors::OwoColorize;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Module<'s> {
@@ -55,8 +54,7 @@ impl Wave {
     }
 
     fn intersect(&self, other_n: Self) -> Option<Self> {
-        (other_n.phase % self.freq == 0)
-            .then_some(Self::new(self.freq.lcm(&other_n.freq), self.phase))
+        (other_n.phase == self.phase).then_some(Self::new(self.freq.lcm(&other_n.freq), self.phase))
     }
 }
 
@@ -65,6 +63,16 @@ enum Pulse {
     High,
     #[default]
     Low,
+}
+impl Not for Pulse {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match self {
+            Pulse::High => Pulse::Low,
+            Pulse::Low => Pulse::High,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -167,12 +175,12 @@ impl<'s> Schema<'s> {
                     Pulse::Low => pulses.low += src.dest.len(),
                 }
                 for dest in &src.dest {
-                    eprintln!(
-                        "{} -{:?}-> {}",
-                        src.tag,
-                        src.state.get(),
-                        self.modules[*dest].tag
-                    );
+                    // eprintln!(
+                    //     "{} -{:?}-> {}",
+                    //     src.tag,
+                    //     src.state.get(),
+                    //     self.modules[*dest].tag
+                    // );
 
                     if src.state.get() == Pulse::Low && *dest == rx {
                         return (pulses, true);
@@ -300,27 +308,148 @@ impl<'s> Schema<'s> {
 
     pub fn calc_to_rx(&mut self) -> usize {
         let rx = self.ids["rx"];
+        self.calc_pulses();
+        self.modules[rx]
+            .pulses
+            .iter()
+            .find_map(|(n, pulse)| (*pulse == Pulse::Low).then_some(n.freq + n.phase))
+            .unwrap()
+    }
 
-        let mut queues = array::from_fn(|_| Vec::with_capacity(self.modules.len()));
-        queues[0].push(self.ids[BROADCASTER]);
+    pub fn calc_pulses(&mut self) {
+        let mut queue = Vec::with_capacity(self.modules.len());
+        queue.push((self.ids[BROADCASTER], Wave::new(1, 0), Pulse::Low));
 
-        let result = self.calc_pulses(rx, &mut queues);
+        let mut counter = 0;
+
+        while !queue.is_empty() {
+            counter += 1;
+            if counter > 6 {
+                break;
+            }
+            // cn -Low-> sh -High-> mf -Low-> rx
+            eprintln!("=====================");
+            for (src, n, pulse) in std::mem::take(&mut queue) {
+                for dest in self.modules[src].dest.clone() {
+                    eprintln!(
+                        "{} -{pulse:?}-> {}",
+                        self.modules[src].tag, self.modules[dest].tag
+                    );
+
+                    match self.modules[dest].ty.clone() {
+                        ModuleType::Flip => {
+                            if pulse == Pulse::Low {
+                                let last_state = self.modules[dest]
+                                    .pulses
+                                    .values()
+                                    .last()
+                                    .copied()
+                                    .unwrap_or_default();
+
+                                self.modules[dest]
+                                    .pulses
+                                    .entry(Wave::new(n.freq * 2, n.phase))
+                                    .or_insert_with_key(|n| {
+                                        queue.push((dest, *n, !last_state));
+                                        Pulse::High
+                                    });
+                                self.modules[dest]
+                                    .pulses
+                                    .entry(Wave::new(n.freq * 2, n.phase + 1))
+                                    .or_insert_with_key(|n| {
+                                        queue.push((dest, *n, last_state));
+                                        Pulse::Low
+                                    });
+                            }
+                        }
+                        ModuleType::Conj(inputs) => {
+                            // on each `input` wave:
+                            //     if everyone is High put Low,
+                            //     otherwise High.
+                            for &input in &inputs {
+                                match pulse {
+                                    Pulse::High => {
+                                        if inputs.len() == 1 {
+                                            self.modules[dest].pulses.entry(n).or_insert_with_key(
+                                                |n| {
+                                                    queue.push((dest, *n, Pulse::Low));
+                                                    Pulse::Low
+                                                },
+                                            );
+                                        } else {
+                                            inputs.iter().try_fold(n, |acc, &other_in| {
+                                                if input == other_in {
+                                                    return Some(acc);
+                                                }
+                                                self.modules[other_in].pulses.iter().find_map(
+                                                    |(&other_n, &other_pulse)| {
+                                                        (pulse == other_pulse)
+                                                            .then(|| acc.intersect(other_n))
+                                                            .flatten()
+                                                    },
+                                                )
+                                            });
+                                            for &other_in in &inputs {
+                                                if other_in == input {
+                                                    continue;
+                                                }
+                                                for (other_n, pulse) in
+                                                    self.modules[other_in].pulses.clone()
+                                                {
+                                                    if pulse != Pulse::High {
+                                                        continue;
+                                                    }
+                                                    if let Some(intersection) = n.intersect(other_n)
+                                                    {
+                                                        // eprintln!("{n:?} & {other_n:?} = {intersection:?}");
+                                                        self.modules[dest]
+                                                            .pulses
+                                                            .entry(intersection)
+                                                            .or_insert_with_key(|n| {
+                                                                queue.push((dest, *n, Pulse::Low));
+                                                                Pulse::Low
+                                                            });
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Pulse::Low => {
+                                        self.modules[dest].pulses.entry(n).or_insert_with_key(
+                                            |n| {
+                                                queue.push((dest, *n, Pulse::High));
+                                                Pulse::High
+                                            },
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        ModuleType::Broadcaster => {
+                            self.modules[dest].pulses = self.modules[src].pulses.clone();
+                        }
+                    };
+                }
+            }
+        }
 
         let mut f = BufWriter::new(
             fs::OpenOptions::new()
                 .write(true)
                 .create(true)
+                .truncate(true)
                 .open("target/to_rx.dot")
                 .unwrap(),
         );
 
         writeln!(
             &mut f,
-            "{}",
-            r##"digraph {
+            r##"digraph {{
     bgcolor="#0d1117"
     node [fontcolor="white" color="white" fontname="Monaspace Argon Var"]
-    edge [color="white"]"##
+    edge [color="white"]
+    forcelabels=true
+    "##
         )
         .unwrap();
 
@@ -356,94 +485,20 @@ impl<'s> Schema<'s> {
             writeln!(&mut f, ";").unwrap();
         }
         writeln!(&mut f, "}}").unwrap();
-
-        result
     }
+}
 
-    pub fn calc_pulses(&mut self, rx: usize, [queue, next_queue]: &mut [Vec<usize>; 2]) -> usize {
-        for broadcaster in queue.iter() {
-            self.modules[*broadcaster]
-                .pulses
-                .insert(Wave::new(1, 0), Pulse::Low);
-        }
+#[cfg(test)]
+mod tests {
+    use crate::Schema;
 
-        while !queue.is_empty() {
-            for src in queue.drain(0..) {
-                for dest in self.modules[src].dest.clone() {
-                    // eprintln!("{} -> {}", self.modules[src].tag, self.modules[dest].tag);
-
-                    if dest == rx {
-                        for (n, pulse) in &self.modules[src].pulses {
-                            if *pulse == Pulse::Low {
-                                return n.freq + n.phase;
-                            }
-                        }
-                    }
-
-                    match self.modules[dest].ty.clone() {
-                        ModuleType::Flip => {
-                            let mut new_pulses = false;
-                            for (n, pulse) in self.modules[src].pulses.clone() {
-                                if pulse == Pulse::Low {
-                                    new_pulses |= self.modules[dest]
-                                        .pulses
-                                        .insert(Wave::new(n.freq * 2, n.phase), Pulse::High)
-                                        .is_none();
-
-                                    new_pulses |= self.modules[dest]
-                                        .pulses
-                                        .insert(Wave::new(n.freq * 2, n.phase + 1), Pulse::Low)
-                                        .is_none();
-                                }
-                            }
-                            if !new_pulses {
-                                continue;
-                            }
-                        }
-                        ModuleType::Conj(inputs) => {
-                            // on each `input` wave:
-                            //     if everyone is High put Low,
-                            //     otherwise High.
-                            for &input in &inputs {
-                                for (n, pulse) in self.modules[input].pulses.clone() {
-                                    match pulse {
-                                        Pulse::High => {
-                                            for &other_in in &inputs {
-                                                if other_in == input {
-                                                    continue;
-                                                }
-                                                for (other_n, pulse) in
-                                                    self.modules[other_in].pulses.clone()
-                                                {
-                                                    if pulse != Pulse::High {
-                                                        continue;
-                                                    }
-                                                    if let Some(intersection) = n.intersect(other_n)
-                                                    {
-                                                        self.modules[dest]
-                                                            .pulses
-                                                            .insert(intersection, Pulse::Low);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Pulse::Low => {
-                                            self.modules[dest].pulses.insert(n, Pulse::High);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        ModuleType::Broadcaster => {
-                            self.modules[dest].pulses = self.modules[src].pulses.clone();
-                        }
-                    };
-
-                    next_queue.push(dest);
-                }
-            }
-            mem::swap(queue, next_queue);
-        }
-        panic!("rx never gets a low pulse");
+    #[test]
+    fn test() {
+        Schema::parse(concat! {
+            "broadcaster -> a\n",
+            "&a -> b\n",
+            "&b -> rx\n",
+        })
+        .calc_pulses();
     }
 }

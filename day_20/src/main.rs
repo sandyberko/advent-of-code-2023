@@ -3,13 +3,13 @@ use day_20::Schema;
 const INPUT: &str = include_str!("input.txt");
 
 fn main() {
-    // println!(
-    //     "Pulse Propagation: {}",
-    //     Schema::parse(INPUT).pulse_propogation()
-    // );
-    // // 896998430
+    println!(
+        "Pulse Propagation: {}",
+        Schema::parse(INPUT).pulse_propogation()
+    );
+    // 896998430
     // println!("Pulse to rx: {}", Schema::parse(INPUT).calc_to_rx());
-    Schema::parse(INPUT).pulse_to_rx();
+    // Schema::parse(INPUT).pulse_to_rx();
 }
 #[cfg(test)]
 mod tests {
@@ -38,5 +38,10 @@ mod tests {
         };
         let result = super::Schema::parse(INPUT).pulse_propogation();
         assert_eq!(result, 11_687_500);
+    }
+
+    #[test]
+    fn calc_to_rx() {
+        super::Schema::parse(super::INPUT).calc_pulses();
     }
 }
